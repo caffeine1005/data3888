@@ -3,3 +3,14 @@ title: "w2"
 format: html
 ---
 
+
+```{r}
+install.packages("BiocManager")
+BiocManager::install("GEOquery")
+BiocManager::install("limma")
+```
+
+```{r}
+load("GSE46474.RData")
+```
+
