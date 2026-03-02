@@ -11,6 +11,43 @@ BiocManager::install("limma")
 ```
 
 ```{r}
+library(GEOquery)
+library(R.utils)
+library(reshape2)
+library(ggplot2)
+library(limma)
+library(dplyr)
+```
+
+
+```{r}
 load("GSE46474.RData")
+```
+
+```{r}
+class(gse)
+```
+```{r}
+head(pData(gse)[,1:5])
+head(fData(gse)[,1:5])
+head(exprs(gse)[,1:5])
+```
+
+```{r}
+gse$Outcome <- ifelse(grepl("AR", gse$title), "Rejection", "Stable")
+table(gse$Outcome)
+
+eMat = exprs(gse)
+```
+```{r}
+eMat
+```
+
+```{r}
+hist(eMat)
+```
+
+```{r}
+write.csv(exprs(gse), "GSE46474_expression_matrix.txt")
 ```
 
