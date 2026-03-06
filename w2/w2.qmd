@@ -5,12 +5,6 @@ format: html
 
 
 ```{r}
-install.packages("BiocManager")
-BiocManager::install("GEOquery")
-BiocManager::install("limma")
-```
-
-```{r}
 library(GEOquery)
 library(R.utils)
 library(reshape2)
@@ -25,29 +19,231 @@ load("GSE46474.RData")
 ```
 
 ```{r}
-class(gse)
-```
-```{r}
 head(pData(gse)[,1:5])
 head(fData(gse)[,1:5])
 head(exprs(gse)[,1:5])
-```
-
-```{r}
-gse$Outcome <- ifelse(grepl("AR", gse$title), "Rejection", "Stable")
-table(gse$Outcome)
-
 eMat = exprs(gse)
 ```
+
 ```{r}
-eMat
+gse$Outcome <- ifelse(grepl("AR", gse$title), "Rejection", "Stable") #Tidy the title variable and call it Outcome. 
+table(gse$Outcome)
+```
+
+```{r}
+dim(gse)
+```
+```{r}
+dim(eMat)
 ```
 
 ```{r}
 hist(eMat)
 ```
 
+
 ```{r}
+rownames(gse)[1:10]
+rownames(eMat[1:50, ])
+```
+
+```{r}
+featureData <- fData(gse) # GSE contain a featuredata slot that contains information about the genes that were sampled. 
+colnames(featureData)
+```
+
+```{r}
+head(featureData[,"Gene Symbol"])
+head(featureData[,"Gene Title"])
+```
+
+1.2
+```{r}
+summary(eMat[,1])
+```
+
+```{r}
+summary(melt(exprs(gse))$value)
 write.csv(exprs(gse), "GSE46474_expression_matrix.txt")
 ```
+
+```{r}
+p <- ggplot(melt(exprs(gse)), aes(x=Var2, y=value)) +  
+  geom_boxplot(outlier.colour="black", outlier.shape=16,outlier.size=0.5, notch=FALSE) +
+  theme(axis.text.x = element_text(angle = 180, hjust = 1)) +
+  labs (x = "Patient", y = "Expression value") +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90))
+p
+```
+
+```{r}
+eMat[8251,]
+```
+
+```{r}
+boxplot(eMat[8251,] ~ gse$Outcome, ylab="log2 expression")
+```
+
+```{r}
+t.test(eMat[8251,] ~ gse$Outcome)
+```
+
+```{r}
+plot_data <- data.frame(expression = eMat[8251,], outcome = gse$Outcome)
+ggplot(plot_data, aes(sample = expression, color = outcome)) +
+  stat_qq() +
+  stat_qq_line() +
+  theme_minimal()
+```
+
+2.2
+```{r}
+design <- model.matrix(~Outcome, data = pData(gse))
+fit <- lmFit(exprs(gse), design)
+fit <- eBayes(fit)
+
+## Without gene symbols
+library(DT)
+tT <- topTable(fit, n = Inf) 
+DT::datatable(round(tT[1:100, ], 3))
+```
+
+```{r}
+tT <- topTable(fit, genelist=featureData[,"Gene Symbol"], n = 20)
+```
+
+2.3
+```{r}
+cl <- factor(sample(c("YES", "NO"), 40, replace=TRUE))
+fake_expression <- matrix(rnorm(54613*40), nrow=54613)
+
+fake_design = model.matrix(~cl)
+fake_fit = lmFit(fake_expression, fake_design)
+fake_fit = eBayes(fake_fit)
+```
+
+```{r}
+set.seed(3888)
+cl <- factor(sample(c("YES", "NO"), 40, replace=TRUE))
+fake_expression <- matrix(rnorm(54613*40), nrow=54613)
+
+fake_design = model.matrix(~cl)
+fake_fit = lmFit(fake_expression, fake_design)
+fake_fit = eBayes(fake_fit)
+
+fake_tT <- topTable(fake_fit, n = Inf) 
+DT::datatable(round(fake_tT[1:100, ], 3))
+```
+
+```{r}
+qqnorm(fake_fit$t)
+abline(0,1)
+```
+
+2.4
+```{r}
+df<- topTable(fit, n=Inf, genelist=rownames(gse))
+ggplot(df, aes(x = AveExpr, y = logFC))+
+    geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
+    scale_colour_gradient(low="blue",high="red") +
+    ylab("log2 fold change") + xlab("Average expression")
+    
+## Code to extract negative log p-value
+p.value = -log10(df$P.Value)
+```
+
+
+```{r}
+df<- topTable(fit, n=Inf, genelist=rownames(gse))
+
+p <- ggplot(df, aes(x = AveExpr, y = logFC))+
+    geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
+    scale_colour_gradient(low="blue",high="red") +
+    ylab("log2 fold change") + xlab("Average expression")
+p
+```
+
+```{r}
+p <- ggplot(df, aes(logFC,-log10(P.Value)))+
+    geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
+    scale_colour_gradient(low="blue",high="red")+
+    xlab("log2 fold change") + ylab("-log10 p-value")
+p
+```
+
+
+3.1
+```{r}
+gse_pca <- prcomp(t(exprs(gse)))
+df_toplot <- data.frame(gse$Outcome, 
+                        PC1 = gse_pca$x[,1], PC2 = gse_pca$x[,2]  )
+g <- ggplot(df_toplot, aes(x = PC1, y = PC2, color = gse.Outcome)) + 
+  geom_point(size = 4) + 
+  theme_minimal() 
+g
+```
+
+3.2
+```{r}
+## quick filter to reduce computational time
+
+largevar = apply(gse, 1, var)
+ind = which(largevar > quantile(largevar, 0.9))
+
+X = as.matrix(t(exprs(gse[ind,])))
+y = gse$Outcome
+
+cvK = 5  # number of CV folds
+cv_50acc5_knn = cv_50acc5_svm = cv_50acc5_rf = c()
+cv_acc_knn = cv_acc_svm = cv_acc_rf = c()
+
+n_sim = 25 ## number of repeats
+for (i in 1:n_sim) {
+
+  cvSets = cvTools::cvFolds(nrow(X), cvK)  # permute all the data, into 5 folds
+  cv_acc_knn = cv_acc_svm = cv_acc_rf = c()
+  
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X[test_id, ]
+    X_train = X[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    
+    ## KNN
+    fit5 = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc_knn[j] = mean(fit5 == y_test)
+    
+    ## SVM
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fit <- predict(svm_res, X_test)
+    cv_acc_svm[j] = mean(fit == y_test)
+
+    ## RandomForest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fit <- predict(rf_res, X_test)
+    cv_acc_rf[j] = mean(fit == y_test)
+  }
+  cv_50acc5_knn <- append(cv_50acc5_knn, mean(cv_acc_knn))
+  cv_50acc5_svm <- append(cv_50acc5_svm, mean(cv_acc_svm))
+  cv_50acc5_rf <- append(cv_50acc5_rf, mean(cv_acc_rf))
+} ## end for
+```
+
+```{r}
+boxplot(list(SVM = cv_50acc5_svm, KNN = cv_50acc5_knn , RF= cv_50acc5_rf ), ylab="CV Accuracy")
+```
+
+3.3
+```{r}
+load("GSE138043.RData")
+
+BiocManager::install("preprocessCore")
+library(preprocessCore)
+exprs(gse) <- normalize.quantiles(exprs(gse)) # Normalise Data
+boxplot(exprs(gse))
+```
+
+
 
