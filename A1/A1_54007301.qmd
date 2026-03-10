@@ -84,6 +84,7 @@ extract_symbols_fd2 <- function(x) {
   parts
 }
 
+
 extract_unique_symbol_fd2 <- function(x) {
   syms <- extract_symbols_fd2(x)
   if (length(syms) == 1) syms else NA_character_
