@@ -36,11 +36,6 @@ ATODE
 
 # Part 1: Exploratory Analysis
 
-This section illustrates the data pre-processing steps and lists the 20 most differentially expressed genes. 
-Firstly, the data pre-processing consists of clarifying the nameing structure by 
-- na/"" are treated as NA character in R
-- "///" and "//" are treated as 
-
 
 ```{r}
 load("GSE138043.RData")
@@ -49,23 +44,6 @@ gse138043 <- gse
 load("GSE46474.RData")
 gse46474 <- gse
 
-extract_first_symbol <- function(x) {
-  if (is.na(x) || x == "") return(NA_character_)
-  parts <- unlist(strsplit(x, " /// "))
-  first <- parts[1]
-  fields <- unlist(strsplit(first, " // "))
-  if (length(fields) >= 2) fields[2] else NA_character_
-}
-
-extract_first_symbol_gse46474 <- function(x) {
-  if (is.na(x) || x == "") return(NA_character_)
-  parts <- unlist(strsplit(x, " /// "))
-  parts[1]
-}
-```
-
-
-```{r}
 expr1 <- exprs(gse138043)
 pd1 <- pData(gse138043)
 fd1 <- fData(gse138043)
@@ -76,18 +54,42 @@ fd2 <- fData(gse46474)
 ```
 
 ```{r}
-write.csv(expr1, "expr1.csv")
-write.csv(pd1, "pd1.csv")
-write.csv(fd1, "fd1.csv")
-write.csv(expr2, "expr2.csv")
-write.csv(pd2, "pd2.csv")
-write.csv(fd2, "fd2.csv")
+extract_symbols_fd1 <- function(x) {
+  if (is.na(x) || x == "") return(character(0))
+  
+  parts <- unlist(strsplit(x, " /// "))
+  
+  syms <- vapply(parts, function(part) {
+    fields <- unlist(strsplit(part, " // "))
+    if (length(fields) >= 2) fields[2] else NA_character_
+  }, character(1))
+  
+  syms <- unique(na.omit(syms))
+  syms <- syms[syms != ""]
+  syms
+}
+
+extract_unique_symbol_fd1 <- function(x) {
+  syms <- extract_symbols_fd1(x)
+  if (length(syms) == 1) syms else NA_character_
+}
+
+extract_symbols_fd2 <- function(x) {
+  if (is.na(x) || x == "") return(character(0))
+  
+  parts <- unlist(strsplit(x, " /// "))
+  parts <- trimws(parts)
+  parts <- unique(parts)
+  parts <- parts[parts != ""]
+  parts
+}
+
+extract_unique_symbol_fd2 <- function(x) {
+  syms <- extract_symbols_fd2(x)
+  if (length(syms) == 1) syms else NA_character_
+}
 ```
 
-
-```{r}
-fd2
-```
 
 
 ```{r}
@@ -96,30 +98,42 @@ fd2
 group1 <- factor(pd1[["rejection at 12months post transplant:ch1"]])
 group1_clean <- factor(make.names(as.character(group1)))
 
+table(group1_clean)
+
 design1 <- model.matrix(~ 0 + group1_clean)
 colnames(design1) <- levels(group1_clean)
 
 fit1 <- lmFit(expr1, design1)
 cont1 <- makeContrasts(AR - non.AR, levels = design1)
-#↑works as make.names changes the name to AR/non.AR
 fit1 <- contrasts.fit(fit1, cont1)
 fit1 <- eBayes(fit1)
+
 res1 <- topTable(fit1, number = Inf, adjust.method = "BH")
 
-res1$GeneSymbol <- vapply(fd1[rownames(res1), "gene_assignment"], extract_first_symbol, character(1))
-res1 <- res1[!is.na(res1$GeneSymbol) & res1$GeneSymbol != "", ]
-res1 <- res1[order(res1$adj.P.Val, -abs(res1$logFC)), ]
-res1_unique <- res1[!duplicated(res1$GeneSymbol), ]
+res1$GeneSymbol <- vapply(
+  fd1[rownames(res1), "gene_assignment"],
+  extract_unique_symbol_fd1,
+  character(1)
+)
+
+res1_clean <- res1[!is.na(res1$GeneSymbol) & res1$GeneSymbol != "", ]
+
+res1_clean <- res1_clean[order(res1_clean$adj.P.Val, -abs(res1_clean$logFC)), ]
+
+res1_unique <- res1_clean[!duplicated(res1_clean$GeneSymbol), ]
 
 top20_table1 <- res1_unique[1:20, c("GeneSymbol", "logFC", "adj.P.Val", "P.Value", "t", "B")]
+top20_table1
+
 ```
 
-
-
 ```{r}
-#gse46474 analsys
+#gse46474 
+
 group2 <- factor(pd2[["procedure status:ch1"]])
 group2_clean <- factor(make.names(as.character(group2)))
+
+table(group2_clean)
 
 design2 <- model.matrix(~ 0 + group2_clean)
 colnames(design2) <- levels(group2_clean)
@@ -129,30 +143,35 @@ cont2 <- makeContrasts(
   post.transplant.acute.rejection..AR. - post.transplant.non.rejection..NR.,
   levels = design2
 )
-
 fit2 <- contrasts.fit(fit2, cont2)
 fit2 <- eBayes(fit2)
+
 res2 <- topTable(fit2, number = Inf, adjust.method = "BH")
 
-res2$GeneSymbol <- vapply(fd2[rownames(res2), "Gene Symbol"], extract_first_symbol_gse46474, character(1))
-res2 <- res2[!is.na(res2$GeneSymbol) & res2$GeneSymbol != "", ]
-res2 <- res2[order(res2$adj.P.Val, -abs(res2$logFC)), ]
-res2_unique <- res2[!duplicated(res2$GeneSymbol), ]
+res2$GeneSymbol <- vapply(
+  fd2[rownames(res2), "Gene Symbol"],
+  extract_unique_symbol_fd2,
+  character(1)
+)
+res2_clean <- res2[!is.na(res2$GeneSymbol) & res2$GeneSymbol != "", ]
+
+res2_clean <- res2_clean[order(res2_clean$adj.P.Val, -abs(res2_clean$logFC)), ]
+
+res2_unique <- res2_clean[!duplicated(res2_clean$GeneSymbol), ]
 
 top20_table2 <- res2_unique[1:20, c("GeneSymbol", "logFC", "adj.P.Val", "P.Value", "t", "B")]
+top20_table2
 ```
 
 
 ```{r}
 #the below shows that the data is continuouys and roughly log-scale. This means that the datasets are clean, and thus the use of limma is appropriate for differential expression method. However for gse138043, due to the imbalance in AR and non-AR the power of the analysis may be affected.
 
-dim(expr1)
 summary(as.vector(expr1))
-table(group1_clean)
-
-dim(expr2)
 summary(as.vector(expr2))
-table(group2_clean)
+
+boxplot(expr1, las = 2, main = "GSE138043 (biopsy-based)")
+boxplot(expr2, las = 2, main = "GSE46474 (blood-based)")
 ```
 
 ```{r}
@@ -163,17 +182,17 @@ boxplot(expr2, las = 2, main = "GSE46474")
 ```
 
 ```{r}
-top20_1 <- res1_unique$GeneSymbol[1:20]
-top20_2 <- res2_unique$GeneSymbol[1:20]
+top20_1 <- top20_table1$GeneSymbol
+top20_2 <- top20_table2$GeneSymbol
 
-intersect(top20_1, top20_2)
-setdiff(top20_1, top20_2)
-setdiff(top20_2, top20_1)
-length(intersect(top20_1, top20_2))
-```
+overlap_genes <- intersect(top20_1, top20_2)
+biopsy_only    <- setdiff(top20_1, top20_2)
+blood_only     <- setdiff(top20_2, top20_1)
 
-```{r}
-t.test(top20_1, top20_2)
+overlap_genes
+biopsy_only
+blood_only
+length(overlap_genes)
 ```
 
 

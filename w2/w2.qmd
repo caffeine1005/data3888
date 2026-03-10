@@ -19,11 +19,21 @@ load("GSE46474.RData")
 ```
 
 ```{r}
+pData(gse)
+```
+```{r}
+fData(gse)
+```
+
+
+```{r}
 head(pData(gse)[,1:5])
 head(fData(gse)[,1:5])
 head(exprs(gse)[,1:5])
 eMat = exprs(gse)
 ```
+
+
 
 ```{r}
 gse$Outcome <- ifelse(grepl("AR", gse$title), "Rejection", "Stable") #Tidy the title variable and call it Outcome. 
