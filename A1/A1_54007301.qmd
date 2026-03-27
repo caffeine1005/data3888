@@ -31,7 +31,7 @@ library(pROC)
 
 # Introduction.
 
-ATODE
+This report investigates whether blood-based (GSE46474) or biopsy-based (GSE138043) gene expression samples lead to better classification of kidney graft rejection. Part 1 identifies the top differentially expressed genes in each dataset using limma. Part 2 visualises all features via volcano plots. Part 3 builds Random Forest classifiers evaluated with LOOCV, and compares their performance to determine which sample type is more suitable for clinical deployment.
 
 # Part 1: Exploratory Analysis
 
@@ -207,17 +207,19 @@ blood_only     <- setdiff(top20_2, top20_1)
 
 # Part 2. Visualization
 
-Below shows the volcano plot for both biopsy-based samples (p1) and blood-based samples (p2) as a way to show the most relevant genes, where being high on the x axis means that there is a high magnitude of change in gene expression, whilst being high on the y axis means that the change it has is significant. This method allows for a visual representation of which genes are statistically important, as it is clear that those on the top right, where there is a high magnitude of statically significant change, are those worth taking a deeper look, whilst those on the bottom left, where the changes are small and statistically insignificant, can be either ignored or left as a low priority.
+Volcano plots are used below to visualise all probes simultaneously for both the biopsy-based (p1) and blood-based (p2) datasets. The x-axis shows the log2 fold change (magnitude of differential expression) and the y-axis shows the -log10 p-value (statistical significance). Genes in the upper-right and upper-left corners are both highly significant and strongly differentially expressed, making them the most relevant candidates. This visualisation was chosen because it efficiently displays both effect size and significance for every feature in a single plot, allowing quick identification of potentially important genes.
 
 ```{r}
-p1 <- ggplot(res1_unique, aes(logFC,-log10(P.Value)))+
+p1 <- ggplot(res1, aes(logFC,-log10(P.Value)))+
     geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
     scale_colour_gradient(low="blue",high="red")+
-    xlab("log2 fold change") + ylab("-log10 p-value")
-p2 <- ggplot(res2_unique, aes(logFC,-log10(P.Value)))+
+    xlab("log2 fold change") + ylab("-log10 p-value") +
+    ggtitle("GSE138043 (Biopsy-based)")
+p2 <- ggplot(res2, aes(logFC,-log10(P.Value)))+
     geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
     scale_colour_gradient(low="blue",high="red")+
-    xlab("log2 fold change") + ylab("-log10 p-value")
+    xlab("log2 fold change") + ylab("-log10 p-value") +
+    ggtitle("GSE46474 (Blood-based)")
 p1
 p2
 ```
@@ -229,6 +231,7 @@ Taking a look at the graph above, it can be seen that in general, biopsy based b
 The first is the model for the biopsy based samples, put into a random forest classification model. The model was chosen aboves the likes of k-means/kNN models due to the data set's nature of having high dimension and is robust to multicollinearity. Further, (Leave-one-out-cross-validation)LOOCV a specific kind of cross-validation technique was used to prevent over fitting. LOOCV, unlike a usual k-fold CV only leaves one sample out when validating, making the process more suitable for a relatively small samples size data, like the ones dealt in this case. By going through LOOCV process, the data is capable of testing on an "unknown" data, which the model in real life will be used on.
 
 ```{r}
+set.seed(42)
 actual_classes1 <- factor(make.names(as.character(pd1[["rejection at 12months post transplant:ch1"]])))
 n_samples <- ncol(expr1)
 predictions1 <- character(n_samples)
@@ -256,21 +259,22 @@ for (i in 1:n_samples) {
     character(1)
   )
   res_train_clean <- res_train[!is.na(res_train$GeneSymbol) & res_train$GeneSymbol != "", ]
+  res_train_clean <- res_train_clean[order(res_train_clean$adj.P.Val, -abs(res_train_clean$logFC)), ]
   res_train_unique <- res_train_clean[!duplicated(res_train_clean$GeneSymbol), ]
-  
+
   top20_probes_fold <- head(rownames(res_train_unique), 20)
 
   train_rf_data <- data.frame(t(train_expr[top20_probes_fold, ]), Status = train_group)
   colnames(train_rf_data) <- make.names(colnames(train_rf_data))
-  
+
   test_rf_data <- data.frame(t(test_expr[top20_probes_fold, , drop = FALSE]))
   colnames(test_rf_data) <- make.names(colnames(test_rf_data))
-  
+
   rf_model <- randomForest(Status ~ ., data = train_rf_data, ntree = 500)
-  
+
   fold_prediction <- predict(rf_model, newdata = test_rf_data)
   predictions1[i] <- as.character(fold_prediction)
-  
+
   fold_prob <- predict(rf_model, newdata = test_rf_data, type = "vote")
   prob_scores1[i] <- fold_prob[1, positive_class1]
 }
@@ -281,6 +285,7 @@ predictions1 <- factor(predictions1, levels = levels(actual_classes1))
 An identical model was used for blood-based samples as well, using random forest and LOOCV.
 
 ```{r}
+set.seed(42)
 actual_classes2 <- factor(make.names(as.character(pd2[["procedure status:ch1"]])))
 n_samples <- ncol(expr2)
 predictions2 <- character(n_samples)
@@ -313,21 +318,22 @@ for (i in 1:n_samples) {
   )
   
   res_train_clean <- res_train[!is.na(res_train$GeneSymbol) & res_train$GeneSymbol != "", ]
+  res_train_clean <- res_train_clean[order(res_train_clean$adj.P.Val, -abs(res_train_clean$logFC)), ]
   res_train_unique <- res_train_clean[!duplicated(res_train_clean$GeneSymbol), ]
-  
+
   top20_probes_fold <- head(rownames(res_train_unique), 20)
 
   train_rf_data <- data.frame(t(train_expr[top20_probes_fold, ]), Status = train_group)
   colnames(train_rf_data) <- make.names(colnames(train_rf_data))
-  
+
   test_rf_data <- data.frame(t(test_expr[top20_probes_fold, , drop = FALSE]))
   colnames(test_rf_data) <- make.names(colnames(test_rf_data))
-  
+
   rf_model <- randomForest(Status ~ ., data = train_rf_data, ntree = 500)
-  
+
   fold_prediction <- predict(rf_model, newdata = test_rf_data)
   predictions2[i] <- as.character(fold_prediction)
-  
+
   fold_prob <- predict(rf_model, newdata = test_rf_data, type = "vote")
   prob_scores2[i] <- fold_prob[1, positive_class2]
 }
@@ -345,7 +351,7 @@ Biopsy based model
 confusionMatrix(predictions1, actual_classes1)
 ```
 
-The Biopsy model shows a respectable overall accuracy at 82.69%. However the sensitivity data shows how it is rather weak in terms of trying to catch all AR cases. On the contrary, this model performs substantially well in find in the true negative (i.e. catching cases in non-AR cases). Furthermore, the kappa score of 55% indicates that about half of the results are found correct by guessing. Whilst the low p-value indicates that it is statistically better than simply guessing, it leaves a lot of question regarding the real accuracy of the model. The CI suggest that a range from 70\~92% is likely the real accuracy of the model.
+The Biopsy model shows a respectable overall accuracy at 82.69%. However the sensitivity data shows how it is rather weak in terms of trying to catch all AR cases. On the contrary, this model performs substantially well in find in the true negative (i.e. catching cases in non-AR cases). Furthermore, the kappa score of 55% indicates model achieves 55% of the possible improvement over random guessing. Whilst the low p-value indicates that it is statistically better than simply guessing, it leaves a lot of question regarding the real accuracy of the model. The CI suggest that a range from 70~92% is likely the real accuracy of the model.
 
 blood based model
 
@@ -375,4 +381,4 @@ legend("bottomright", legend = c("Biopsy-based", "Blood-based"),
 
 # Conclusion
 
-Overall, it can be said that the blood based model is likely a more reliable model compared to biopsy model, but both have some room of improvement considering the use case. Whilst in this specific case LOOCV was used, since in general k-CV is the more accurate option, process like increasing data size to counter this, may lead to a substantially higher overall model performance.
+Overall, the blood-based model is likely more reliable than the biopsy-based model due to its more balanced sensitivity and specificity, though both have room for improvement. LOOCV was chosen because it maximises training data in each fold, which is appropriate for these small sample sizes. However, LOOCV estimates can have high variance, so the reported accuracies should be interpreted with caution. Increasing the sample size would help produce more stable and generalisable performance estimates.
