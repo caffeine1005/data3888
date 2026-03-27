@@ -1,7 +1,8 @@
 ---
 title: "A1_54007301"
 author: "540007301"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
+date: today 
+date-format: "DD MMMM, YYYY"
 format:
   html:
     code-tools: true
@@ -17,25 +18,24 @@ execute:
   echo: true
   tidy: true
 ---
+
 ```{r loadpackages, message=FALSE, warning=FALSE}
 library(Biobase)
 library(limma)
-
-theme_set(theme_bw())
-x = readxl::read_excel(here("assignment", "DATA2x02_survey_2025_Responses.xlsx"))
-knitr::write_bib(c(.packages(),
-                   "knitr", "rmarkdown"), "report.bib")
-
-
+library(kableExtra)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(pROC)
 ```
 
-
-## Introduction.
+# Introduction.
 
 ATODE
 
 # Part 1: Exploratory Analysis
 
+## Data pre-processing
 
 ```{r}
 load("GSE138043.RData")
@@ -52,6 +52,8 @@ expr2 <- exprs(gse46474)
 pd2 <- pData(gse46474)
 fd2 <- fData(gse46474)
 ```
+
+This section first conducts pre-processing on the existing data by - formatting nas and empty inputs as NA_character - conduct name/symbol extraction by splitting certain specific columns when "///" or "//" were used. Furthermore, for cases where multiple probes reacted, that section would be disregarded, as these cases indicate that it is ambiguous which probe has reacted, and thus means that the result is not trustworthy.
 
 ```{r}
 extract_symbols_fd1 <- function(x) {
@@ -91,7 +93,24 @@ extract_unique_symbol_fd2 <- function(x) {
 }
 ```
 
+Then necessary data from biopsy-based samples (gse138043) and blood-based samples (gse46474) were extracted to from group1 and group2 respectively. group1 consists of the AR/non-AR result of of the biopsy-based samples whilst group2 consists the same but for blood-based samples.
 
+```{r}
+#| echo: false
+boxplot(expr1, las = 2, main = "GSE138043 (biopsy-based)")
+boxplot(expr2, las = 2, main = "GSE46474 (blood-based)")
+```
+
+Further, normality and variance was tested for both biopsy and blood based sample via a box plot, which seems to suggest somewhat of a skew and not perfect normality. However, as can be seen from below, both data are roughly log-scaled which suggest that the use of limma pipeline, which does not rely on strict normality, is sensible and thus we can proceed.
+
+```{r}
+summary(as.vector(expr1))
+summary(as.vector(expr2))
+```
+
+## Finding the most differential genes
+
+In the below process, it takes the pData of biopsy-based samples and differentiates them into AR and non-AR and designs a matrix using those data. Then it fits every gene in to a linear model and compares which of the genes has the largest fold change using makeContrast function. The final output ensures that the top 20 genes are all unique as one gene may be represented by multiple probes on a micro array.
 
 ```{r}
 #gse138043
@@ -99,14 +118,12 @@ extract_unique_symbol_fd2 <- function(x) {
 group1 <- factor(pd1[["rejection at 12months post transplant:ch1"]])
 group1_clean <- factor(make.names(as.character(group1)))
 
-table(group1_clean)
-
 design1 <- model.matrix(~ 0 + group1_clean)
 colnames(design1) <- levels(group1_clean)
 
-fit1 <- lmFit(expr1, design1)
+rfit1 <- lmFit(expr1, design1)
 cont1 <- makeContrasts(AR - non.AR, levels = design1)
-fit1 <- contrasts.fit(fit1, cont1)
+fit1 <- contrasts.fit(rfit1, cont1)
 fit1 <- eBayes(fit1)
 
 res1 <- topTable(fit1, number = Inf, adjust.method = "BH")
@@ -125,16 +142,14 @@ res1_unique <- res1_clean[!duplicated(res1_clean$GeneSymbol), ]
 
 top20_table1 <- res1_unique[1:20, c("GeneSymbol", "logFC", "adj.P.Val", "P.Value", "t", "B")]
 top20_table1
-
 ```
+
+The same process has been conducted on the blood-based samples as well.
 
 ```{r}
 #gse46474 
-
 group2 <- factor(pd2[["procedure status:ch1"]])
 group2_clean <- factor(make.names(as.character(group2)))
-
-table(group2_clean)
 
 design2 <- model.matrix(~ 0 + group2_clean)
 colnames(design2) <- levels(group2_clean)
@@ -161,40 +176,203 @@ res2_clean <- res2_clean[order(res2_clean$adj.P.Val, -abs(res2_clean$logFC)), ]
 res2_unique <- res2_clean[!duplicated(res2_clean$GeneSymbol), ]
 
 top20_table2 <- res2_unique[1:20, c("GeneSymbol", "logFC", "adj.P.Val", "P.Value", "t", "B")]
-top20_table2
 ```
 
+Below are the final results for biopsy and blood based samples respectively.
+
+biopsy-based:
 
 ```{r}
-#the below shows that the data is continuouys and roughly log-scale. This means that the datasets are clean, and thus the use of limma is appropriate for differential expression method. However for gse138043, due to the imbalance in AR and non-AR the power of the analysis may be affected.
-
-summary(as.vector(expr1))
-summary(as.vector(expr2))
-
-boxplot(expr1, las = 2, main = "GSE138043 (biopsy-based)")
-boxplot(expr2, las = 2, main = "GSE46474 (blood-based)")
+#| echo: false
+kable(top20_table1)
 ```
 
-```{r}
-boxplot(expr1, las = 2, main = "GSE138043")
-boxplot(expr2, las = 2, main = "GSE46474")
+blood-based:
 
-#あとでqqplot足す
+```{r}
+#| echo: false
+kable(top20_table2)
 ```
 
+Further, by testing the overlap between blood based and biopsy based samples, it shows that there are no overlaps at all and thus the top 20 for each are completely different sets of genes.
+
 ```{r}
+#| echo: false
 top20_1 <- top20_table1$GeneSymbol
 top20_2 <- top20_table2$GeneSymbol
-
 overlap_genes <- intersect(top20_1, top20_2)
 biopsy_only    <- setdiff(top20_1, top20_2)
 blood_only     <- setdiff(top20_2, top20_1)
-
-overlap_genes
-biopsy_only
-blood_only
-length(overlap_genes)
 ```
 
+# Visualization
 
+Below shows the volcano plot for both biopsy-based samples (p1) and blood-based samples (p2) as a way to show the most relevant genes, where being high on the x axis means that there is a high magnitude of change in gene expression, whilst being high on the y axis means that the change it has is significant. This method allows for a visual representation of which genes are statistically important, as it is clear that those on the top right, where there is a high magnitude of statically significant change, are those worth taking a deeper look, whilst those on the bottom left, where the changes are small and statistically insignificant, can be either ignored or left as a low priority.
 
+```{r}
+p1 <- ggplot(res1_unique, aes(logFC,-log10(P.Value)))+
+    geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
+    scale_colour_gradient(low="blue",high="red")+
+    xlab("log2 fold change") + ylab("-log10 p-value")
+p2 <- ggplot(res2_unique, aes(logFC,-log10(P.Value)))+
+    geom_point(aes(colour=-log10(P.Value)), alpha=1/3, size=1) +
+    scale_colour_gradient(low="blue",high="red")+
+    xlab("log2 fold change") + ylab("-log10 p-value")
+p1
+p2
+```
+
+Taking a look at the graph above, it can be seen that in general, biopsy based blood samples tends to have lower magnitude of change compared to blood based samples, and the blood based samples seem to have changes that are more significant.
+
+# Part 3: Model + Evaluation
+
+The first is the model for the biopsy based samples, put into a random forest classification model. The model was chosen aboves the likes of k-means/kNN models due to the data set's nature of having high dimension and is robust to multicollinearity. Further, (Leave-one-out-cross-validation)LOOCV a specific kind of cross-validation technique was used to prevent over fitting. LOOCV, unlike a usual k-fold CV only leaves one sample out when validating, making the process more suitable for a relatively small samples size data, like the ones dealt in this case. By going through LOOCV process, the data is capable of testing on an "unknown" data, which the model in real life will be used on.
+
+```{r}
+actual_classes1 <- factor(make.names(as.character(pd1[["rejection at 12months post transplant:ch1"]])))
+n_samples <- ncol(expr1)
+predictions1 <- character(n_samples)
+prob_scores1 <- numeric(n_samples)
+positive_class1 <- levels(actual_classes1)[1]  # "AR"
+for (i in 1:n_samples) {
+  train_expr <- expr1[, -i]
+  test_expr <- expr1[, i, drop = FALSE]
+  
+  train_group <- actual_classes1[-i]
+  test_group <- actual_classes1[i]
+  
+  design_train <- model.matrix(~ 0 + train_group)
+  colnames(design_train) <- levels(train_group)
+  
+  fit_train <- lmFit(train_expr, design_train)
+  cont_train <- makeContrasts(AR - non.AR, levels = design_train) 
+  fit_train <- contrasts.fit(fit_train, cont_train)
+  fit_train <- eBayes(fit_train)
+  
+  res_train <- topTable(fit_train, number = Inf, adjust.method = "BH")
+  res_train$GeneSymbol <- vapply(
+    fd1[rownames(res_train), "gene_assignment"],
+    extract_unique_symbol_fd1,
+    character(1)
+  )
+  res_train_clean <- res_train[!is.na(res_train$GeneSymbol) & res_train$GeneSymbol != "", ]
+  res_train_unique <- res_train_clean[!duplicated(res_train_clean$GeneSymbol), ]
+  
+  top20_probes_fold <- head(rownames(res_train_unique), 20)
+
+  train_rf_data <- data.frame(t(train_expr[top20_probes_fold, ]), Status = train_group)
+  colnames(train_rf_data) <- make.names(colnames(train_rf_data))
+  
+  test_rf_data <- data.frame(t(test_expr[top20_probes_fold, , drop = FALSE]))
+  colnames(test_rf_data) <- make.names(colnames(test_rf_data))
+  
+  rf_model <- randomForest(Status ~ ., data = train_rf_data, ntree = 500)
+  
+  fold_prediction <- predict(rf_model, newdata = test_rf_data)
+  predictions1[i] <- as.character(fold_prediction)
+  
+  fold_prob <- predict(rf_model, newdata = test_rf_data, type = "vote")
+  prob_scores1[i] <- fold_prob[1, positive_class1]
+}
+
+predictions1 <- factor(predictions1, levels = levels(actual_classes1))
+```
+
+An identical model was used for blood-based samples as well, using random forest and LOOCV.
+
+```{r}
+actual_classes2 <- factor(make.names(as.character(pd2[["procedure status:ch1"]])))
+n_samples <- ncol(expr2)
+predictions2 <- character(n_samples)
+prob_scores2 <- numeric(n_samples)
+positive_class2 <- levels(actual_classes2)[1]
+for (i in 1:n_samples) {
+  train_expr <- expr2[, -i]
+  test_expr <- expr2[, i, drop = FALSE]
+  
+  train_group <- actual_classes2[-i]
+  test_group <- actual_classes2[i]
+  
+  design_train <- model.matrix(~ 0 + train_group)
+  colnames(design_train) <- levels(train_group)
+  
+  fit_train <- lmFit(train_expr, design_train)
+  cont_train <- makeContrasts(
+  post.transplant.acute.rejection..AR. - post.transplant.non.rejection..NR.,
+  levels = design_train
+  )
+  fit_train <- contrasts.fit(fit_train, cont_train)
+  fit_train <- eBayes(fit_train)
+  
+  res_train <- topTable(fit_train, number = Inf, adjust.method = "BH")
+  
+  res_train$GeneSymbol <- vapply(
+    fd2[rownames(res_train), "Gene Symbol"],
+    extract_unique_symbol_fd2,
+    character(1)
+  )
+  
+  res_train_clean <- res_train[!is.na(res_train$GeneSymbol) & res_train$GeneSymbol != "", ]
+  res_train_unique <- res_train_clean[!duplicated(res_train_clean$GeneSymbol), ]
+  
+  top20_probes_fold <- head(rownames(res_train_unique), 20)
+
+  train_rf_data <- data.frame(t(train_expr[top20_probes_fold, ]), Status = train_group)
+  colnames(train_rf_data) <- make.names(colnames(train_rf_data))
+  
+  test_rf_data <- data.frame(t(test_expr[top20_probes_fold, , drop = FALSE]))
+  colnames(test_rf_data) <- make.names(colnames(test_rf_data))
+  
+  rf_model <- randomForest(Status ~ ., data = train_rf_data, ntree = 500)
+  
+  fold_prediction <- predict(rf_model, newdata = test_rf_data)
+  predictions2[i] <- as.character(fold_prediction)
+  
+  fold_prob <- predict(rf_model, newdata = test_rf_data, type = "vote")
+  prob_scores2[i] <- fold_prob[1, positive_class2]
+}
+
+predictions2 <- factor(predictions2, levels = levels(actual_classes2))
+
+```
+
+Based on it, below are the results from each of the models.
+
+Biopsy based model
+
+```{r}
+#| echo: false
+confusionMatrix(predictions1, actual_classes1)
+```
+
+The Biopsy model shows a respectable overall accuracy at 82.69%. However the sensitivity data shows how it is rather weak in terms of trying to catch all AR cases. On the contrary, this model performs substantially well in find in the true negative (i.e. catching cases in non-AR cases). Furthermore, the kappa score of 55% indicates that about half of the results are found correct by guessing. Whilst the low p-value indicates that it is statistically better than simply guessing, it leaves a lot of question regarding the real accuracy of the model. The CI suggest that a range from 70\~92% is likely the real accuracy of the model.
+
+blood based model
+
+```{r}
+#| echo: false
+confusionMatrix(predictions2, actual_classes2)
+```
+
+Blood based model has a slightly lower overall accuracy at 80%. However, when looking into the details, the data is substantially more balanced with sensitivity and specificity. This means that the likelihood of the model predicting truth and false is equally at 80%. In terms of the kappa score, it shows a moderate improvement relative to biopsy based model, but is still has room for improvements. The CI suggest that a range from 74\~90% is likely the real accuracy of the model, which is a larger range compared to the biopsy model.
+
+## ROC Curves
+
+Below are the ROC curves for both models, which plot the true positive rate against the false positive rate at various classification thresholds. the arc shape on both indicates that both have high sensitivity + few false alarms, and that both models in this perspective is not severely different.
+
+```{r message=FALSE, warning=FALSE}
+#| echo: false
+roc1 <- roc(actual_classes1, prob_scores1, levels = rev(levels(actual_classes1)))
+roc2 <- roc(actual_classes2, prob_scores2, levels = rev(levels(actual_classes2)))
+
+plot(roc1, col = "blue", main = "ROC Curves: Biopsy vs Blood Model",
+     legacy.axes = TRUE, print.auc = TRUE, print.auc.y = 0.4)
+plot(roc2, col = "red", add = TRUE,
+     print.auc = TRUE, print.auc.y = 0.3)
+legend("bottomright", legend = c("Biopsy-based", "Blood-based"),
+       col = c("blue", "red"), lwd = 2)
+```
+
+# Conclusion
+
+Overall, it can be said that the blood based model is likely a more reliable model compared to biopsy model, but both have some room of improvement considering the use case. Whilst in this specific case LOOCV was used, since in general k-CV is the more accurate option, process like increasing data size to counter this, may lead to a substantially higher overall model performance.
