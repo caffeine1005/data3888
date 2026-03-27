@@ -205,7 +205,7 @@ biopsy_only    <- setdiff(top20_1, top20_2)
 blood_only     <- setdiff(top20_2, top20_1)
 ```
 
-# Visualization
+# Part 2. Visualization
 
 Below shows the volcano plot for both biopsy-based samples (p1) and blood-based samples (p2) as a way to show the most relevant genes, where being high on the x axis means that there is a high magnitude of change in gene expression, whilst being high on the y axis means that the change it has is significant. This method allows for a visual representation of which genes are statistically important, as it is clear that those on the top right, where there is a high magnitude of statically significant change, are those worth taking a deeper look, whilst those on the bottom left, where the changes are small and statistically insignificant, can be either ignored or left as a low priority.
 
